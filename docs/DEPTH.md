@@ -14,6 +14,7 @@
 | M5 离群重估 | 查看稳健重估后的残差及排除理由 | `GET /api/refit` | `app/modules/refit/consensus.py` `app/modules/refit/service.py` | `tests/test_refit.py` |
 | M6 接缝验核 | 验证相邻边覆盖、次序与偏差 | `GET /api/seams` | `app/modules/seams/witnesses.py` `app/modules/seams/geometry.py` `app/modules/seams/service.py` | `tests/test_seams.py` |
 | M7 图幅签审 | 勾稽三表、签审、留存和导出 | `POST /api/review/runs` | `app/modules/review/decisions.py` `app/modules/review/reconcile.py` `app/modules/review/service.py` | `tests/test_review.py` |
+| M8 修订批次 | 登记补测、逐幅说明替换与失效、版本留存 | `POST /api/review/runs/{run_id}/revisions` | `app/modules/revision/supplement.py` `app/modules/revision/report.py` `app/modules/revision/service.py` | `tests/test_revision.py` |
 
 ## 陷阱登记
 
@@ -39,6 +40,10 @@
 | TRAP-28 | `sample_data/field/ground.csv` 的河西 P08 偏离 | 初算剔除误伤多点 | 稳定多数重估恢复良点 | `app/modules/refit/consensus.py` | `tests/test_refit.py::test_refit_recovers_good_points_that_initial_fit_would_drop` |
 | TRAP-29 | `sample_data/field/witness.csv` 的 `HX-QS` | 小训练残差冒充拼缝通过 | 两侧独立投影后取最大平面差 | `app/modules/seams/geometry.py` | `tests/test_seams.py::test_independent_edge_fails_even_when_both_training_residuals_are_small` |
 | TRAP-30 | `sample_data/field/witness.csv` 测试副本用旧控制点名冒充见证 | 重复证据进入独立核验 | 用规范名和像素索引排除 | `app/modules/seams/witnesses.py` | `tests/test_seams.py::test_pseudo_witness_reusing_a_control_alias_is_excluded` |
+| TRAP-31 | 补测表内 `P04` 与别名 `河堤四号` 归并后撞名 | 后行覆盖前行 | 归并后键重复整批拒收 | `app/modules/revision/supplement.py` | `tests/test_revision.py::test_invalid_supplement_fails_whole_revision_and_keeps_base` |
+| TRAP-32 | 同一补测重跑或并发提交 | 重复新增修订版本 | 基底批次＋补测摘要定键，冲突时复用 | `app/modules/revision/service.py` `app/store.py` | `tests/test_revision.py::test_same_resurvey_rerun_reuses_revision_without_new_version` `tests/test_revision.py::test_concurrent_identical_revisions_store_one_version` |
+| TRAP-33 | 补测表含坏数、错幅、原档无此点 | 半批修订污染已签图幅 | 任一行无效整批拒收，旧版保留 | `app/modules/revision/supplement.py` | `tests/test_revision.py::test_invalid_supplement_fails_whole_revision_and_keeps_base` `tests/test_revision.py::test_failed_revision_leaves_old_version_then_retry_succeeds` |
+| TRAP-34 | 把修订批次再当基底 | 补测链静默丢失前批替换 | 拒绝嵌套，修订一律基于原始批次 | `app/modules/revision/service.py` | `tests/test_revision.py::test_revision_rejects_revision_as_base` |
 
 ## 对账
 
@@ -49,3 +54,7 @@
 | 19 条拼缝见证记录 | 18 可用 + 1 隔离 |
 
 空行和重复表头各一行，未纳入逻辑记录。对账比较源行号多重集，同计数但错行也会阻断。签审沿所有登记拼缝求判定，`HX-QS` 实测超限与 `QS-SJ` 缺模型分别留证。
+
+## 修订批次
+
+修订在换算层叠加补测：同名（含别名归并）原件行转入 `SUPERSEDED_BY_RESURVEY` 隔离，补测行进入配对，原件字节不动。补测表按第四张账核对（样例 4 行全部采信），三张原件账的隔离数相应增加。修订批次键由基底批次键、补测 SHA-256 与规则版本生成；清单记录基底键与补测摘要。报告逐幅对比基底与修订的模型、配对和拼缝结果：内容未变的图幅签审随修订沿用（同一签审员与时间），已变图幅的基底签审标记失效并留在基底批次回查。修订批次不能再作基底；多次补测基于同一原始批次并列留存。

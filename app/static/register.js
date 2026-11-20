@@ -4,9 +4,10 @@ import {drawAtlas, drawEdge} from './plots.js';
 const byId = id => document.getElementById(id);
 const form = byId('run-form');
 const sign = byId('signature-form');
+const revise = byId('revision-form');
 const links = [...document.querySelectorAll('[data-section]')];
 const state = {snapshot: null, catalog: null, preview: null, section: null, selected: null, edgeId: null,
-  busy: false, signing: false, previewToken: 0, reused: false};
+  busy: false, signing: false, revising: false, previewToken: 0, reused: false};
 const formatTime = new Intl.DateTimeFormat('zh-CN', {timeZone: 'Asia/Shanghai', dateStyle: 'medium', timeStyle: 'medium'});
 const sides = {N: '北', E: '东', S: '南', W: '西'};
 
@@ -104,6 +105,23 @@ function renderSign() {
   else if (eligible.some(row => row.code === state.selected)) options.value = state.selected;
 }
 
+async function openRun(runId) {
+  try {
+    const snapshot = await request(`/api/review/runs/${runId}`);
+    state.reused = true;
+    showSnapshot(snapshot);
+    state.section = 'revision';
+    renderDetail();
+    byId('run-state').textContent = '已回查历史批次 · 记录与签审保持原样';
+  } catch (error) {
+    byId('run-state').textContent = error.message;
+  }
+}
+
+function renderRevision() {
+  revise.hidden = state.section !== 'revision' || !state.snapshot;
+}
+
 function renderDetail() {
   if (!state.section) return;
   byId('section-detail').hidden = false;
@@ -114,8 +132,9 @@ function renderDetail() {
   byId('detail-title').textContent = links.find(link => link.dataset.section === state.section).textContent.trim().replace(/^\d+/, '');
   byId('detail-meta').textContent = state.snapshot ? (state.selected ? `图版 ${state.selected}` : '全册') : '档件预检';
   const limit = state.snapshot?.manifest.parameters.control_limit_m || parameters().control_limit_m;
-  renderLedger(byId('detail-content'), state.section, {...state, limit});
+  renderLedger(byId('detail-content'), state.section, {...state, limit, openRun});
   renderSign();
+  renderRevision();
 }
 
 function showSnapshot(snapshot) {
@@ -169,7 +188,7 @@ async function selectSection(section, focus = false) {
   renderDetail();
   if (focus) byId('detail-title').focus({preventScroll: true});
   if (focus) byId('section-detail').scrollIntoView({block: 'start'});
-  if (state.snapshot || section === 'review' || !form.reportValidity()) return;
+  if (state.snapshot || section === 'review' || section === 'revision' || !form.reportValidity()) return;
   byId('detail-content').replaceChildren(el('p', '正在校验该章节。'));
   try {
     const value = await request(`/api/${section}?${new URLSearchParams(parameters())}`);
@@ -183,12 +202,13 @@ async function selectSection(section, focus = false) {
 
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (state.busy || state.signing) return;
+  if (state.busy || state.signing || state.revising) return;
   state.busy = true;
   const button = byId('run');
   button.disabled = true;
   feedback('run-error', null);
   feedback('signature-error', null);
+  feedback('revision-error', null);
   byId('run-state').textContent = '正在校验档件…';
   try {
     const snapshot = await post('/api/review/runs', parameters());
@@ -206,7 +226,7 @@ form.addEventListener('submit', async event => {
 
 sign.addEventListener('submit', async event => {
   event.preventDefault();
-  if (state.busy || state.signing) return;
+  if (state.busy || state.signing || state.revising) return;
   state.signing = true;
   const button = sign.querySelector('button');
   button.disabled = true;
@@ -223,6 +243,46 @@ sign.addEventListener('submit', async event => {
   } finally {
     state.signing = false;
     button.disabled = false;
+  }
+});
+
+revise.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (state.busy || state.signing || state.revising || !state.snapshot) return;
+  state.revising = true;
+  const button = revise.querySelector('button[type="submit"]');
+  button.disabled = true;
+  feedback('revision-error', null);
+  const baseId = state.snapshot.revision?.base_run_id || state.snapshot.manifest.run_id;
+  const content = byId('resurvey-content').value;
+  const payload = {filename: byId('resurvey-name').value.trim() || 'resurvey.csv'};
+  if (content.trim()) payload.content = content;
+  try {
+    const snapshot = await post(`/api/review/runs/${baseId}/revisions`, payload);
+    state.reused = snapshot.reused;
+    showSnapshot(snapshot);
+    state.section = 'revision';
+    renderDetail();
+    byId('run-state').textContent = snapshot.reused ? '已复用同一修订批次 · 旧版保留可回查'
+      : '修订批次已生成 · 基底批次保留可回查';
+  } catch (error) {
+    feedback('revision-error', error.message);
+    byId('run-state').textContent = '修订未生效 · 旧版保留';
+  } finally {
+    state.revising = false;
+    button.disabled = false;
+  }
+});
+
+byId('load-resurvey').addEventListener('click', async () => {
+  feedback('revision-error', null);
+  const dataset = state.snapshot?.manifest.parameters.dataset || form.elements.dataset.value;
+  try {
+    const sample = await request(`/api/review/resurvey-sample?dataset=${encodeURIComponent(dataset)}`);
+    byId('resurvey-name').value = sample.filename;
+    byId('resurvey-content').value = sample.content;
+  } catch (error) {
+    feedback('revision-error', error.message);
   }
 });
 

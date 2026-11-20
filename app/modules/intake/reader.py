@@ -11,6 +11,8 @@ HEADERS = {
                            ('sheet', 'name', 'crs', 'unit', 'x', 'y', 'note'))),
     'witness.csv': dict(zip(('拼缝', '证点', '甲列', '甲行', '乙列', '乙行', '备注'),
                             ('edge', 'name', 'au', 'av', 'bu', 'bv', 'note'))),
+    'resurvey.csv': dict(zip(('图幅', '点名', '像素列', '像素行', '坐标系', '单位', '横坐标', '纵坐标', '备注'),
+                             ('sheet', 'name', 'u', 'v', 'crs', 'unit', 'x', 'y', 'note'))),
 }
 
 

@@ -64,3 +64,13 @@ canvas { display: block; max-width: 100%; width: 100%; }
 .residual-wrap { padding: 6px var(--pad); border-bottom: 1px solid var(--line); }
 .residual-wrap canvas { height: 156px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto; animation: none !important; transition: none !important; } }
+.revision-form { display: grid; gap: 8px; padding: 12px var(--pad); border-top: 1px solid var(--line); }
+.revision-form label { font-size: 11px; font-weight: 600; display: grid; gap: 4px; }
+.revision-form textarea { width: 100%; border: 1px solid var(--line-2); background: var(--panel); border-radius: 0; padding: 6px; font: 12px/1.5 var(--mono); resize: vertical; }
+.revision-hint { font-size: 11px; color: var(--ink-2); line-height: 1.6; }
+.revision-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.revision-sheet { border-top: 1px solid var(--line); padding-bottom: 8px; }
+.revision-sheet h3 { display: flex; align-items: center; gap: 8px; }
+.revision-flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px var(--pad) 8px; font-size: 11px; color: var(--ink-2); }
+.status[data-status=CHANGED], .status[data-status=INVALIDATED] { color: var(--bad); }
+.status[data-status=UNCHANGED], .status[data-status=CARRIED] { color: var(--ok); }

@@ -30,6 +30,7 @@ REASONS = {
     'MODEL_UNAVAILABLE': '至少一幅图缺少重估模型',
     'GAP_OVER_LIMIT': '地面拼缝偏差超限',
     'NO_EDGE_REGISTERED': '未登记独立拼缝',
+    'SUPERSEDED_BY_RESURVEY': '原件被补测替换，保留回查',
 }
 
 

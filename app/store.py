@@ -10,7 +10,8 @@ SCHEMA = '''
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
-    snapshot TEXT NOT NULL
+    snapshot TEXT NOT NULL,
+    base_run_id TEXT REFERENCES runs(run_id)
 );
 CREATE TABLE IF NOT EXISTS signatures (
     run_id TEXT NOT NULL REFERENCES runs(run_id),
@@ -44,6 +45,9 @@ class Store:
         with self.connect('IMMEDIATE') as connection:
             for statement in SCHEMA.strip().removesuffix(';').split(';'):
                 connection.execute(statement)
+            columns = {row['name'] for row in connection.execute('PRAGMA table_info(runs)')}
+            if 'base_run_id' not in columns:
+                connection.execute('ALTER TABLE runs ADD COLUMN base_run_id TEXT REFERENCES runs(run_id)')
 
     @staticmethod
     def _read(connection, run_id, required=True):
@@ -56,19 +60,31 @@ class Store:
             'SELECT sheet, reviewer, signed_at, version FROM signatures WHERE run_id = ? ORDER BY sheet',
             (run_id,),
         )
-        return {**json.loads(row['snapshot']), 'signatures': [dict(signature) for signature in signatures]}
+        revisions = connection.execute(
+            'SELECT run_id, created_at FROM runs WHERE base_run_id = ? ORDER BY created_at, run_id',
+            (run_id,),
+        )
+        return {**json.loads(row['snapshot']),
+                'signatures': [dict(signature) for signature in signatures],
+                'revisions': [dict(revision) for revision in revisions]}
 
     def get(self, run_id, required=True):
         with self.connect() as connection:
             return self._read(connection, run_id, required)
 
-    def insert(self, snapshot):
+    def insert(self, snapshot, carried=()):
         manifest = snapshot['manifest']
         run_id = manifest['run_id']
         serialized = canonical_json(snapshot)
         with self.connect('IMMEDIATE') as connection:
-            insert = connection.execute('INSERT INTO runs VALUES (?, ?, ?) ON CONFLICT(run_id) DO NOTHING',
-                                        (run_id, manifest['created_at'], serialized))
+            insert = connection.execute(
+                'INSERT INTO runs (run_id, created_at, snapshot, base_run_id) VALUES (?, ?, ?, ?)'
+                ' ON CONFLICT(run_id) DO NOTHING',
+                (run_id, manifest['created_at'], serialized, manifest.get('base_run_id')))
+            if insert.rowcount:
+                connection.executemany('INSERT INTO signatures VALUES (?, ?, ?, ?, 1)',
+                                       [(run_id, signature['sheet'], signature['reviewer'],
+                                         signature['signed_at']) for signature in carried])
             return self._read(connection, run_id), insert.rowcount == 0
 
     def sign(self, run_id, sheet, reviewer, expected_version):

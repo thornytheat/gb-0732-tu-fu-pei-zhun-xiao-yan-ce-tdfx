@@ -4,6 +4,7 @@ export const labels = {
   PASS: '通过', FAIL: '超限', BLOCKED: '待核', FIT: '已拟合', READY: '可签', HOLD: '暂缓', RETURN: '退修',
   SIGNED: '已签', OUTLIER: '离群', ACCEPTED: '采信', RECEIVED: '已收',
   EMPTY_FILE: '空档', BLANK_FILE: '空行档', HEADER_ONLY: '仅表头',
+  CHANGED: '已修订', UNCHANGED: '未变', INVALIDATED: '失效', CARRIED: '沿用',
 };
 const reasons = JSON.parse(document.getElementById('reason-dictionary').textContent);
 const number = new Intl.NumberFormat('zh-CN', {minimumFractionDigits: 3, maximumFractionDigits: 3, useGrouping: false});
@@ -135,11 +136,17 @@ function review(root, snapshot) {
   const signed = new Map(snapshot.signatures.map(item => [item.sheet, item]));
   const totals = snapshot.ledger;
   const width = [totals.controls, totals.ground, totals.witnesses];
+  const names = ['控制点', '地面点', '拼缝见证'];
   const sums = [
     `${width[0].accepted} 采信 + ${width[0].outlier} 离群 + ${width[0].isolated} 隔离`,
     `${width[1].paired} 已配对 + ${width[1].isolated} 隔离`,
     `${width[2].eligible} 可用 + ${width[2].isolated} 隔离`,
   ];
+  if (totals.resurvey) {
+    width.push(totals.resurvey);
+    names.push('补测表');
+    sums.push(`${totals.resurvey.accepted} 采信 + ${totals.resurvey.outlier} 离群 + ${totals.resurvey.isolated} 隔离`);
+  }
   root.append(table([['图幅'], ['校验结论'], ['拟合均方根 m', 'num'], ['关联拼缝'], ['理由'], ['签审员'], ['签审时间']],
     snapshot.reviews.map(row => {
       const signature = signed.get(row.code);
@@ -147,12 +154,87 @@ function review(root, snapshot) {
         row.edges.join(' / '), reason(row.reason), signature?.reviewer, signature?.signed_at];
     })));
   group(root, '原件对账', table([['档件'], ['原件记录', 'num'], ['归属'], ['核对']],
-    width.map((entry, index) => [['控制点', '地面点', '拼缝见证'][index], entry.input, sums[index], badge('PASS')])));
+    width.map((entry, index) => [names[index], entry.input, sums[index], badge('PASS')])));
 }
 
-export function renderLedger(root, section, {snapshot, preview, selected, edgeId, limit}) {
+function runLink(runId, openRun) {
+  const button = el('button', runId.slice(0, 12), 'text-action num');
+  button.type = 'button';
+  button.title = runId;
+  button.addEventListener('click', () => openRun(runId));
+  return button;
+}
+
+function revisionSheet(sheet) {
+  const card = el('section', null, 'revision-sheet');
+  const head = el('h3');
+  head.append(`${sheet.code} ${sheet.title} `, badge(sheet.changed ? 'CHANGED' : 'UNCHANGED'));
+  const flow = el('p', null, 'revision-flow');
+  flow.append(badge(sheet.review_before), document.createTextNode(' → '), badge(sheet.review_after));
+  card.append(head, flow);
+  if (sheet.replaced.length) {
+    card.append(table([['复测点'], ['补测像素 u / v'], ['补测地面 E / N m'], ['补测来源'], ['被替换原件']],
+      sheet.replaced.map(row => [row.name, row.pixel.map(fmt).join(' / '), row.ground.map(fmt).join(' / '),
+        evidence(row.source),
+        row.superseded.map(mark => `${mark.kind === 'pixel' ? '像素' : '地面'} ${evidence(mark.source)}`).join('、')])));
+  } else {
+    card.append(el('p', '本幅没有复测点替换。'));
+  }
+  if (sheet.seams.length) {
+    card.append(table([['重算拼缝'], ['原判定'], ['新判定'], ['原最大 m', 'num'], ['新最大 m', 'num']],
+      sheet.seams.map(edge => [edge.code, badge(edge.before.status), badge(edge.after.status),
+        fmt(edge.before.max_m), fmt(edge.after.max_m)])));
+  } else {
+    card.append(el('p', '本幅关联拼缝无需重算。'));
+  }
+  const note = el('p', null, 'revision-flow');
+  if (sheet.signature) {
+    note.append(`签审 ${sheet.signature.reviewer} · ${sheet.signature.signed_at} → `,
+      badge(sheet.signature.outcome === 'carried' ? 'CARRIED' : 'INVALIDATED'),
+      sheet.signature.outcome === 'carried' ? '（随修订沿用）' : '（留在基底批次回查，新批次需重签）');
+  } else {
+    note.textContent = '本幅在基底批次没有签审。';
+  }
+  card.append(note);
+  return card;
+}
+
+function revision(root, snapshot, openRun) {
+  if (!snapshot) {
+    root.append(el('p', '先运行校验形成基底批次，再登记补测生成修订。'));
+    return;
+  }
+  const report = snapshot.revision;
+  if (!report) {
+    const existing = snapshot.revisions || [];
+    if (existing.length) {
+      const list = el('p', null, 'revision-flow');
+      list.append('本批次已有修订：');
+      for (const item of existing) list.append(runLink(item.run_id, openRun), ' ');
+      root.append(list);
+    } else {
+      root.append(el('p', '本批次尚未生成修订。在下方登记补测表后生成修订批次，原件与签审保持原样。'));
+    }
+    return;
+  }
+  const totals = report.totals;
+  const bar = el('p', null, 'revision-flow');
+  bar.append('基底批次 ', runLink(report.base_run_id, openRun),
+    ` · 补测表 ${report.supplement.file}（${totals.resurvey_rows} 行） · 基底记录与签审均可回查`);
+  root.append(bar);
+  root.append(table([['替换复测点', 'num'], ['被替换原件行', 'num'], ['重算拼缝', 'num'], ['签审失效', 'num'], ['签审沿用', 'num']],
+    [[totals.replaced_points, totals.superseded_rows, totals.seams_recomputed,
+      totals.signatures_invalidated, totals.signatures_carried]]));
+  for (const sheet of report.sheets) root.append(revisionSheet(sheet));
+}
+
+export function renderLedger(root, section, {snapshot, preview, selected, edgeId, limit, openRun}) {
   root.replaceChildren();
   const value = preview || (section === 'review' ? snapshot : snapshot?.[section]);
+  if (section === 'revision') {
+    revision(root, snapshot, openRun);
+    return;
+  }
   if (!value) {
     root.append(el('p', '运行校验后查看。'));
     return;

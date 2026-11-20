@@ -7,4 +7,14 @@
     <button class="button primary" type="submit">签审入册</button>
     <p class="feedback" id="signature-error" role="alert" hidden></p>
   </form>
+  <form class="revision-form" id="revision-form" hidden>
+    <p class="revision-hint">补测不改写原件：同名复测点以补测表为准替换，被替换的原件行转入隔离保留回查。修订一律基于原始校验批次生成，同一补测重跑复用同一批次，修订失败保留旧版。</p>
+    <label>补测表文件 <input id="resurvey-name" name="filename" value="resurvey.csv" pattern="[^/\\]{1,60}\.csv" maxlength="60"></label>
+    <label>补测表内容 <textarea id="resurvey-content" rows="7" spellcheck="false" placeholder="留空则使用图册登记的补测表"></textarea></label>
+    <div class="revision-actions">
+      <button class="button primary" type="submit">生成修订批次</button>
+      <button class="button outline" type="button" id="load-resurvey">载入样例补测</button>
+    </div>
+    <p class="feedback" id="revision-error" role="alert" hidden></p>
+  </form>
 </section>
